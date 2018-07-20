@@ -59,6 +59,9 @@ class Window(tk.Tk):
     def create_circle(self, *args, **kwargs):
         return Circle(self.canvas, *args, **kwargs)
 
+    def get_size(self):
+        return np.array([self.canvas.winfo_width(), self.canvas.winfo_height()])
+
     def _handle_idle(self):
         self.on_update()
 
