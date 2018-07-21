@@ -5,7 +5,7 @@ import cv2 as cv
 import gui
 
 DATASET_DEFAUL_FILE_PATH = 'dataset.h5'
-FRAME_SHAPE = (480, 640)
+FRAME_SHAPE = (480, 640, 1)
 
 
 class Preparer:
@@ -23,28 +23,38 @@ class Preparer:
 
         self.speed = np.zeros((2,))
 
-    def prepare(self):
+    def prepare(self, extend=False):
         """Start recording dataset from web-camera"""
 
-        hdf5 = h5py.File(self.filepath, 'w')
+        if extend:
+            hdf5 = h5py.File(self.filepath, 'r+')
 
-        # dataset of video frames
-        self.frames = hdf5.create_dataset(
-            "frames", 
-            (self.frame_buffer,) + FRAME_SHAPE, 
-            dtype='uint8',
-            maxshape=(None,) + FRAME_SHAPE,
-            compression="gzip", 
-            compression_opts=3)
+            self.frames = hdf5['frames']
+            self.positions = hdf5['positions']
 
-        # dataset of target positions
-        self.positions = hdf5.create_dataset(
-            "positions",
-            (self.frame_buffer, 2), 
-            dtype='f',
-            maxshape=(None, 2),
-            compression="gzip", 
-            compression_opts=3)
+            shape = self.frames.shape
+            self.frame_buffer = shape[0]
+            self.frame_index = shape[0] - 1
+        else:
+            hdf5 = h5py.File(self.filepath, 'w')
+
+            # dataset of video frames
+            self.frames = hdf5.create_dataset(
+                "frames", 
+                (self.frame_buffer,) + FRAME_SHAPE, 
+                dtype='uint8',
+                maxshape=(None,) + FRAME_SHAPE,
+                compression="gzip", 
+                compression_opts=3)
+
+            # dataset of target positions
+            self.positions = hdf5.create_dataset(
+                "positions",
+                (self.frame_buffer, 2), 
+                dtype='f',
+                maxshape=(None, 2),
+                compression="gzip", 
+                compression_opts=3)
 
         self.window.on_update = self.on_update
 
@@ -77,6 +87,15 @@ class Preparer:
         Scale dataset by 2 if full
         """
 
+        if self.frame_index + 1 >= self.frame_buffer:
+            self.frame_buffer *= 2  # scale buffer size by 2
+
+            self.frames.resize((self.frame_buffer,) + FRAME_SHAPE)  # scale dataset by 2
+            self.positions.resize((self.frame_buffer, 2))
+
+            if self.debug:
+                print('Extend dataset to size:', self.frame_buffer)
+
         self.update_aim_position()
 
         ret, frame = self.cap.read()
@@ -89,21 +108,12 @@ class Preparer:
             print('Frame', self.frame_index)
 
         self.frame_index += 1
-        self.frames[self.frame_index] = gray
+        self.frames[self.frame_index] = gray.reshape(FRAME_SHAPE)
         pos_norm = self.aim.pos / self.window.get_size()
         self.positions[self.frame_index] = pos_norm
 
         if self.debug:
             print('Position:', pos_norm)
-
-        if self.frame_index + 1 >= self.frame_buffer:
-            self.frame_buffer *= 2  # scale buffer size by 2
-
-            self.frames.resize((self.frame_buffer,) + FRAME_SHAPE)  # scale dataset by 2
-            self.positions.resize((self.frame_buffer, 2))
-
-            if self.debug:
-                print('Extend dataset to size:', self.frame_buffer)
 
 
 def play_dataset(filepath):
@@ -126,12 +136,13 @@ if __name__ == '__main__':
     parser.add_argument('command', type=str, choices=['record', 'play'], help='main command')
     parser.add_argument('--debug', action='store_true', help='output debug information')
     parser.add_argument('-d', '--dataset', type=str, default=DATASET_DEFAUL_FILE_PATH, metavar='DATASET', help='dataset file path')
+    parser.add_argument('-e', '--extend', action='store_true', help='append new frames to exist dataset')
 
     args = parser.parse_args()
 
     if args.command == 'record':
         preparer = Preparer(args.dataset, args.debug)
-        preparer.prepare()
+        preparer.prepare(args.extend)
     elif args.command == 'play':
         play_dataset(args.dataset)
 
